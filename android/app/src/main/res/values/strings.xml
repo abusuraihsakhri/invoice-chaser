@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Invoice Chaser</string>
+    <string name="title_activity_main">Invoice Chaser</string>
+    <string name="package_name">app.invoicechaser.mobile</string>
+    <string name="custom_url_scheme">invoicechaser</string>
+</resources>

@@ -1,0 +1,282 @@
+name: Release v1.0 - Cross-Platform (Windows, Linux, macOS, Android)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  # ==========================================
+  # 1. BUILD WINDOWS DESKTOP (.exe Installer & Portable)
+  # ==========================================
+  build-windows:
+    name: Build Windows Desktop (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Next.js Static Export
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package Windows Executable (NSIS & Portable)
+        working-directory: desktop
+        run: |
+          npm install
+          npx electron-builder --win --x64 --publish never
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            desktop/dist/*.exe
+          if-no-files-found: warn
+
+  # ==========================================
+  # 2. BUILD LINUX DESKTOP (.AppImage & .deb)
+  # ==========================================
+  build-linux:
+    name: Build Linux Desktop (.AppImage & .deb)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Next.js Static Export
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package Linux Binaries (AppImage & deb)
+        working-directory: desktop
+        run: |
+          npm install
+          npx electron-builder --linux AppImage deb --x64 --publish never
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          if-no-files-found: warn
+
+  # ==========================================
+  # 3. BUILD MACOS DESKTOP (.dmg & .zip)
+  # ==========================================
+  build-macos:
+    name: Build macOS Desktop (.dmg)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Next.js Static Export
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package macOS DMG
+        working-directory: desktop
+        run: |
+          npm install
+          npx electron-builder --mac dmg zip --x64 --arm64 --publish never
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+          if-no-files-found: warn
+
+  # ==========================================
+  # 4. BUILD ANDROID MOBILE APP (.apk)
+  # ==========================================
+  build-android:
+    name: Build Android Mobile Phone (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.4
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.4"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Next.js Static Export
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare Android Assets
+        run: |
+          mkdir -p android/app/src/main/assets/public
+          cp -r frontend/out/* android/app/src/main/assets/public/
+
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
+          mkdir -p ../dist-apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist-apk/Invoice-Chaser-v1.0.0.apk
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist-apk/*.apk
+          if-no-files-found: error
+
+  # ==========================================
+  # 5. BACKEND API CONTAINER & RUNTIME
+  # ==========================================
+  build-backend:
+    name: Package Backend API Layer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Backend Pytest Suite
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m pytest tests/test_api.py -v
+
+      - name: Archive Backend Release Bundle
+        run: |
+          tar -czvf invoice-chaser-backend-api-v1.0.0.tar.gz backend/app backend/requirements.txt backend/Dockerfile
+
+      - name: Upload Backend Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-api-bundle
+          path: invoice-chaser-backend-api-v1.0.0.tar.gz
+
+  # ==========================================
+  # 6. PUBLISH OFFICIAL GITHUB RELEASE v1.0
+  # ==========================================
+  publish-release:
+    name: Publish Official GitHub Release v1.0
+    needs: [build-windows, build-linux, build-macos, build-android, build-backend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Organize Release Binaries
+        run: |
+          mkdir -p final-release/
+          find release-assets/ -type f -name "*.exe" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.AppImage" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.deb" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.dmg" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.zip" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.apk" -exec cp {} final-release/ \; 2>/dev/null || true
+          find release-assets/ -type f -name "*.tar.gz" -exec cp {} final-release/ \; 2>/dev/null || true
+          ls -la final-release/
+
+      - name: Generate SHA256 Checksums
+        working-directory: final-release
+        run: |
+          sha256sum * > SHA256SUMS.txt || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: "Invoice Chaser v1.0.0 — Cross-Platform Release"
+          draft: false
+          prerelease: false
+          files: |
+            final-release/*
+          body: |
+            ## 🚀 Invoice Chaser v1.0.0 Release
+
+            Welcome to the official **v1.0.0** release of **Invoice Chaser**! Get paid faster with automated AI payment reminders, default risk scoring, Stripe payment links, and multi-channel escalation.
+
+            ### 📦 Supported Platforms & Downloads:
+            - **Windows**: `Invoice-Chaser-Setup-1.0.0.exe` (Installer) & `Invoice-Chaser-1.0.0-portable.exe`
+            - **Linux**: `Invoice-Chaser-1.0.0.AppImage` & `invoice-chaser_1.0.0_amd64.deb`
+            - **macOS**: `Invoice-Chaser-1.0.0.dmg` (Universal Intel & Apple Silicon)
+            - **Android Phones**: `Invoice-Chaser-v1.0.0.apk`
+            - **Backend API**: `invoice-chaser-backend-api-v1.0.0.tar.gz` (Docker container / Python FastAPI)
+
+            ### ✨ Key Features in v1.0:
+            - **AI Intelligence Layer**: Multi-provider AI support (Hermes 3, GPT-4o, Gemini, Claude, and offline heuristic engine).
+            - **Predictive Default Risk Scoring**: 0–100% credit risk predictor, risk tiers (Low, Medium, High, Severe), and action recommendations.
+            - **Stripe Checkout & Pay Links**: Instant payment link generation embedded in reminder emails and invoices.
+            - **Branded PDF Generation**: Downloadable professional PDF invoices with bank/payment QR codes.
+            - **Multi-Transport Email**: Resend API, custom SMTP mail servers (Gmail, AWS SES, Outlook), and responsive HTML templates.
+            - **Outgoing Webhooks**: Instant Slack and Discord notifications when invoices are overdue or paid.
+            - **Zero-Config Resilient DB**: Auto-fallback to local SQLite if PostgreSQL is absent.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
