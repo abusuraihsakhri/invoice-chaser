@@ -1,6 +1,7 @@
 from datetime import datetime, date
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator
+from urllib.parse import urlsplit
 from decimal import Decimal
 
 
@@ -84,6 +85,15 @@ class InvoiceCreate(BaseModel):
     issued_date: date
     due_date: date
 
+    @field_validator("payment_url")
+    @classmethod
+    def payment_link_must_be_https(cls, value):
+        if value is not None:
+            parsed = urlsplit(value)
+            if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+                raise ValueError("Payment URL must be an HTTPS URL without embedded credentials")
+        return value
+
     @model_validator(mode="after")
     def check_dates(self):
         if self.due_date < self.issued_date:
@@ -100,6 +110,11 @@ class InvoiceUpdate(BaseModel):
     issued_date: Optional[date] = None
     due_date: Optional[date] = None
     status: Optional[str] = None
+
+    @field_validator("payment_url")
+    @classmethod
+    def payment_link_must_be_https(cls, value):
+        return InvoiceCreate.payment_link_must_be_https(value)
 
 
 class InvoiceResponse(BaseModel):
