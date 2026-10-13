@@ -1,5 +1,7 @@
 import logging
 import smtplib
+from html import escape
+from urllib.parse import urlsplit
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -23,8 +25,14 @@ def generate_html_email(
     """Generate a clean, modern HTML email template for reminders."""
     currency_symbol = "$" if currency.upper() == "USD" else ("€" if currency.upper() == "EUR" else ("£" if currency.upper() == "GBP" else f"{currency} "))
     
+    business_name = escape(business_name)
+    client_name = escape(client_name)
+    invoice_number = escape(invoice_number)
+    due_date_str = escape(due_date_str)
+    currency_symbol = escape(currency_symbol)
     pay_button_html = ""
-    if payment_url:
+    if payment_url and urlsplit(payment_url).scheme == "https" and urlsplit(payment_url).netloc:
+        payment_url = escape(payment_url, quote=True)
         pay_button_html = f"""
         <div style="margin: 28px 0; text-align: center;">
             <a href="{payment_url}" style="background-color: #4f46e5; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; display: inline-block;">
@@ -33,7 +41,7 @@ def generate_html_email(
         </div>
         """
 
-    paragraphs = "".join([f"<p style='margin: 0 0 16px 0; color: #374151; line-height: 1.6;'>{p.strip()}</p>" for p in body_text.split("\n\n") if p.strip()])
+    paragraphs = "".join([f"<p style='margin: 0 0 16px 0; color: #374151; line-height: 1.6;'>{escape(p.strip())}</p>" for p in body_text.split("\n\n") if p.strip()])
 
     return f"""<!DOCTYPE html>
 <html>
@@ -178,6 +186,8 @@ def dispatch_reminder_email(reminder) -> tuple[bool, Optional[str]]:
         if success:
             return True, None
 
-    # 3. Fallback: Log to console in development mode
-    logger.info("[DEV / DEMO EMAIL] Sent to %s | Subject: %s", to_email, subject)
-    return True, "Simulated delivery (no active mail API key configured)"
+    # Console simulation is explicitly opt-in and must never count as real delivery.
+    if settings.email_provider == "console" and settings.environment.lower() in ("development", "test"):
+        logger.info("[DEV / DEMO EMAIL] Recipient: %s | Subject: %s", to_email, subject)
+        return True, "Simulated delivery (explicit console mode)"
+    return False, "No successful email delivery provider"
