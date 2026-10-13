@@ -5,6 +5,16 @@ from typing import List
 from app.models import Invoice, Client
 
 
+def safe_csv_cell(value):
+    """Keep spreadsheet programs from interpreting user-controlled text as formulas."""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    if isinstance(value, str) and value.startswith(("\t", "\r", "\n")):
+        return "'" + value
+    return value
+
+
+
 def export_invoices_to_csv(invoices: List[Invoice]) -> str:
     """Generate CSV string of invoices."""
     output = io.StringIO()
@@ -22,7 +32,7 @@ def export_invoices_to_csv(invoices: List[Invoice]) -> str:
         "Description",
     ])
     for inv in invoices:
-        writer.writerow([
+        writer.writerow([safe_csv_cell(v) for v in [
             inv.invoice_number,
             inv.client.name if inv.client else "",
             inv.client.email if inv.client else "",
@@ -33,7 +43,7 @@ def export_invoices_to_csv(invoices: List[Invoice]) -> str:
             inv.due_date.strftime("%Y-%m-%d"),
             inv.paid_date.strftime("%Y-%m-%d") if inv.paid_date else "",
             inv.description or "",
-        ])
+        ]])
     return output.getvalue()
 
 
@@ -43,7 +53,7 @@ def export_clients_to_csv(clients: List[Client]) -> str:
     writer = csv.writer(output)
     writer.writerow(["ID", "Name", "Email", "Company", "Phone", "Risk Score", "Risk Tier", "Notes"])
     for c in clients:
-        writer.writerow([
+        writer.writerow([safe_csv_cell(v) for v in [
             c.id,
             c.name,
             c.email,
@@ -52,5 +62,5 @@ def export_clients_to_csv(clients: List[Client]) -> str:
             f"{c.risk_score:.1f}",
             c.risk_tier,
             c.notes or "",
-        ])
+        ]])
     return output.getvalue()
