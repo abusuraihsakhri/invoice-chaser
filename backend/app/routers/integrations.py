@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from typing import List
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
@@ -74,14 +75,22 @@ def test_webhook(
         "status": "connected",
         "service": req.service,
     }
+    destinations = {
+        "slack": settings.slack_webhook_url,
+        "discord": settings.discord_webhook_url,
+        "generic": settings.generic_webhook_url,
+    }
+    if req.service not in destinations:
+        raise HTTPException(status_code=422, detail="Unsupported webhook service")
+    if not destinations[req.service] or req.webhook_url != destinations[req.service]:
+        raise HTTPException(status_code=400, detail="Webhook URL must match the configured server destination")
     if req.service == "slack":
         _send_slack("webhook.test", payload)
     elif req.service == "discord":
         _send_discord("webhook.test", payload)
     else:
         _send_generic("webhook.test", payload)
-
-    return {"status": "success", "message": f"Sent test payload to {req.service}"}
+    return {"status": "dispatched", "message": "Test request submitted to configured destination"}
 
 
 @router.post("/webhooks/stripe")
@@ -100,20 +109,27 @@ async def handle_stripe_webhook(
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        invoice_id_str = session.get("client_reference_id") or session.get("metadata", {}).get("invoice_id")
-        if invoice_id_str:
-            try:
-                inv_id = int(invoice_id_str)
-                invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
-                if invoice and invoice.status != "paid":
-                    invoice.status = "paid"
-                    invoice.paid_date = date.today()
-                    # Cancel pending reminders
-                    for rem in invoice.reminders:
-                        if rem.sent_at is None:
-                            rem.status = "cancelled"
-                    db.commit()
-            except Exception:
-                pass
-
+        if session.get("payment_status") != "paid":
+            return {"status": "ignored", "reason": "payment_not_confirmed"}
+        invoice_id_str = session.get("client_reference_id") or (session.get("metadata") or {}).get("invoice_id")
+        try:
+            inv_id = int(invoice_id_str)
+        except (ValueError, TypeError):
+            return {"status": "ignored", "reason": "invoice_id_missing"}
+        invoice = db.query(Invoice).filter(Invoice.id == inv_id).first()
+        if not invoice:
+            return {"status": "ignored", "reason": "invoice_not_found"}
+        # Do not trust reference IDs alone: the signed event must also match the debt.
+        expected_minor = int(Decimal(invoice.amount) * 100)
+        if session.get("amount_total") != expected_minor or (
+            (session.get("currency") or "").upper() != (invoice.currency or "").upper()
+        ):
+            return {"status": "ignored", "reason": "payment_mismatch"}
+        if invoice.status != "paid":
+            invoice.status = "paid"
+            invoice.paid_date = date.today()
+            for rem in invoice.reminders:
+                if rem.sent_at is None:
+                    rem.status = "cancelled"
+            db.commit()
     return {"status": "handled"}
