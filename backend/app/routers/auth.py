@@ -27,6 +27,12 @@ def register(user_data: UserCreate, request: Request, db: Session = Depends(get_
             detail="Password must be at least 8 non-empty characters long",
         )
 
+    if len(user_data.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password exceeds bcrypt's 72-byte limit",
+        )
+
     # Create user
     user = User(
         email=normalized_email,
