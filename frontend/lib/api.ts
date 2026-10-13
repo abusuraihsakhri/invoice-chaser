@@ -40,6 +40,18 @@ api.interceptors.response.use(
   }
 );
 
+const downloadAuthenticatedCsv = async (endpoint: string, filename: string) => {
+  const response = await api.get(endpoint, { responseType: "blob" });
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
 // Auth
 export const authApi = {
   register: (data: {
@@ -60,7 +72,7 @@ export const clientsApi = {
     api.post("/api/clients", data),
   update: (id: number, data: any) => api.put(`/api/clients/${id}`, data),
   delete: (id: number) => api.delete(`/api/clients/${id}`),
-  exportCsvUrl: () => `${getApiBaseUrl()}/api/clients/export/csv`,
+  exportCsv: () => downloadAuthenticatedCsv("/api/clients/export/csv", "clients_export.csv"),
 };
 
 // Invoices
@@ -96,7 +108,7 @@ export const invoicesApi = {
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
   },
-  exportCsvUrl: () => `${getApiBaseUrl()}/api/invoices/export/csv`,
+  exportCsv: () => downloadAuthenticatedCsv("/api/invoices/export/csv", "invoices_export.csv"),
 };
 
 // Reminders
