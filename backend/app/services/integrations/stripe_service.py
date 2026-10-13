@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Dict, Any
 try:
     import stripe
@@ -29,12 +30,7 @@ def create_invoice_checkout_session(
     """Create a Stripe Checkout Session for an invoice."""
     client = get_stripe_client()
     if client is None or not settings.stripe_secret_key:
-        # Generate simulated sandbox payment URL for test/demo mode
-        demo_url = f"{settings.frontend_url}/invoices?mock_paid_invoice_id={invoice_id}"
-        return {
-            "checkout_url": demo_url,
-            "session_id": f"demo_sess_{invoice_id}",
-        }
+        raise RuntimeError("Stripe payment processing is not configured")
 
     try:
         frontend_base = settings.frontend_url.rstrip("/")
@@ -42,7 +38,7 @@ def create_invoice_checkout_session(
         c_url = cancel_url or f"{frontend_base}/invoices?cancelled=1"
 
         # Amount in smallest currency unit (cents)
-        unit_amount = int(round(amount * 100))
+        unit_amount = int((Decimal(str(amount)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
         session = client.checkout.Session.create(
             payment_method_types=["card"],

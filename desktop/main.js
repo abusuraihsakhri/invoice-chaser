@@ -36,7 +36,9 @@ function createWindow() {
 
   // Open external links in user's default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 

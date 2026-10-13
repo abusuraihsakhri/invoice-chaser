@@ -123,13 +123,13 @@ export default function ClientsPage() {
             <p className="text-xs text-gray-500">Manage client contacts, payment risk profiles, and communication notes.</p>
           </div>
           <div className="flex items-center gap-3">
-            <a
-              href={clientsApi.exportCsvUrl()}
-              download
+            <button
+              type="button"
+              onClick={() => clientsApi.exportCsv().catch(() => alert("Failed to export clients"))}
               className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition"
             >
               📥 Export CSV
-            </a>
+            </button>
             <button
               onClick={() => {
                 resetForm();

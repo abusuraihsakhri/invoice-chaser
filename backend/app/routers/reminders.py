@@ -122,8 +122,10 @@ def send_reminder_now(
     if not reminder:
         raise HTTPException(status_code=404, detail="Reminder not found")
 
-    if reminder.status == "sent":
-        raise HTTPException(status_code=400, detail="Reminder has already been sent")
+    if reminder.status not in ("pending", "failed"):
+        raise HTTPException(status_code=409, detail="Only pending or failed reminders can be sent")
+    if reminder.invoice.status not in ("sent", "overdue"):
+        raise HTTPException(status_code=409, detail="Cannot send reminders for paid or cancelled invoices")
 
     # Dispatch email
     success = send_reminder_email(reminder)

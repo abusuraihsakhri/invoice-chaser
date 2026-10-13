@@ -39,7 +39,8 @@ def generate_invoice_number(db: Session, user: User) -> str:
             num = 1
     else:
         num = 1
-    return f"{prefix}-{num:03d}"
+    # Include the tenant ID: invoice_number is globally unique in the current schema.
+    return f"{prefix}-{user.id}-{num:03d}"
 
 
 @router.get("", response_model=List[InvoiceResponse])
@@ -196,14 +197,22 @@ def generate_payment_link(
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    res = create_invoice_checkout_session(
-        invoice_id=invoice.id,
-        invoice_number=invoice.invoice_number,
-        amount=float(invoice.amount),
-        currency=invoice.currency or "USD",
-        client_email=invoice.client.email,
-        business_name=current_user.business_name or "Invoice Chaser",
-    )
+    if invoice.status in ("paid", "cancelled"):
+        raise HTTPException(status_code=409, detail="Invoice is not payable")
+
+    try:
+        res = create_invoice_checkout_session(
+            invoice_id=invoice.id,
+            invoice_number=invoice.invoice_number,
+            amount=float(invoice.amount),
+            currency=invoice.currency or "USD",
+            client_email=invoice.client.email,
+            business_name=current_user.business_name or "Invoice Chaser",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Payment provider unavailable") from exc
     invoice.payment_url = res["checkout_url"]
     db.commit()
     return StripeCheckoutResponse(
@@ -227,8 +236,36 @@ def update_invoice(
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     update_data = invoice_data.model_dump(exclude_unset=True)
+    if any(update_data.get(field) is None for field in ("client_id", "amount", "currency", "status") if field in update_data):
+        raise HTTPException(status_code=422, detail="Required invoice fields cannot be null")
+    if invoice.payment_url and any(
+        field in update_data and update_data[field] != getattr(invoice, field)
+        for field in ("client_id", "amount", "currency")
+    ):
+        raise HTTPException(status_code=409, detail="Remove or replace the existing payment link before changing billable fields")
+    if "client_id" in update_data:
+        client = db.query(Client).filter(
+            Client.id == update_data["client_id"],
+            Client.user_id == current_user.id,
+        ).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+    if "status" in update_data and update_data["status"] not in ("sent", "overdue", "paid", "cancelled"):
+        raise HTTPException(status_code=422, detail="Invalid invoice status")
+    issued_date = update_data.get("issued_date", invoice.issued_date)
+    due_date = update_data.get("due_date", invoice.due_date)
+    if issued_date is None or due_date is None or due_date < issued_date:
+        raise HTTPException(status_code=422, detail="Due date must not precede issue date")
     for field, value in update_data.items():
         setattr(invoice, field, value)
+    if invoice.status == "paid":
+        invoice.paid_date = invoice.paid_date or date.today()
+    else:
+        invoice.paid_date = None
+    if invoice.status in ("paid", "cancelled"):
+        for reminder in invoice.reminders:
+            if reminder.sent_at is None:
+                reminder.status = "cancelled"
 
     db.commit()
     db.refresh(invoice)
@@ -248,6 +285,9 @@ def mark_paid(
     ).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
+
+    if invoice.status == "paid":
+        return invoice
 
     invoice.status = "paid"
     invoice.paid_date = date.today()

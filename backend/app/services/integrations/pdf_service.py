@@ -1,4 +1,5 @@
 import io
+from xml.sax.saxutils import escape
 from decimal import Decimal
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -53,13 +54,14 @@ def generate_invoice_pdf(invoice, user, client) -> bytes:
     )
 
     # Business Header & Invoice Number
-    biz_name = user.business_name or "Invoice Chaser Business"
-    biz_email = user.email
+    biz_name = escape(user.business_name or "Invoice Chaser Business")
+    biz_email = escape(user.email)
+    invoice_number = escape(invoice.invoice_number)
 
     header_table = Table([
         [
             Paragraph(f"<b>{biz_name}</b><br/><font size=9 color='#6b7280'>{biz_email}</font>", meta_body),
-            Paragraph(f"<font size=22 color='#4f46e5'><b>INVOICE</b></font><br/><b>#{invoice.invoice_number}</b>", ParagraphStyle("InvRight", parent=meta_body, alignment=2)),
+            Paragraph(f"<font size=22 color='#4f46e5'><b>INVOICE</b></font><br/><b>#{invoice_number}</b>", ParagraphStyle("InvRight", parent=meta_body, alignment=2)),
         ]
     ], colWidths=[3.5 * inch, 3.5 * inch])
     story.append(header_table)
@@ -74,9 +76,9 @@ def generate_invoice_pdf(invoice, user, client) -> bytes:
 
     client_info = f"""
     <b>Bill To:</b><br/>
-    {client.name}<br/>
-    {f'{client.company}<br/>' if client.company else ''}
-    {client.email}
+    {escape(client.name)}<br/>
+    {escape(client.company) + '<br/>' if client.company else ''}
+    {escape(client.email)}
     """
 
     invoice_meta = f"""
@@ -121,7 +123,7 @@ def generate_invoice_pdf(invoice, user, client) -> bytes:
 
     # Payment link note or instructions
     if invoice.payment_url:
-        pay_info = f"<b>Pay Online:</b> You can conveniently pay this invoice directly at: {invoice.payment_url}"
+        pay_info = f"<b>Pay Online:</b> You can conveniently pay this invoice directly at: {escape(invoice.payment_url)}"
         story.append(Paragraph(pay_info, meta_body))
         story.append(Spacer(1, 15))
 

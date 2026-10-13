@@ -159,3 +159,189 @@ def test_clients_and_invoices_workflow():
     inv_csv_res = client.get("/api/invoices/export/csv", headers=headers)
     assert inv_csv_res.status_code == 200
     assert "2500.00" in inv_csv_res.text
+
+
+def test_tenant_isolation_and_invoice_number_uniqueness():
+    """Two owners can create invoices without sharing clients or invoice numbers."""
+    tokens = []
+    clients = []
+    for i in (1, 2):
+        reg = client.post("/api/auth/register", json={
+            "email": f"owner-{i}@example.com",
+            "password": "SecurePassword123!",
+        })
+        assert reg.status_code == 200
+        headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+        tokens.append(headers)
+        res = client.post("/api/clients", headers=headers, json={
+            "name": f"Client {i}", "email": f"client-{i}@example.com"
+        })
+        assert res.status_code == 200
+        clients.append(res.json()["id"])
+
+    today = date.today()
+    payload = {
+        "amount": "10.00",
+        "issued_date": today.isoformat(),
+        "due_date": (today + timedelta(days=5)).isoformat(),
+    }
+    a = client.post("/api/invoices", headers=tokens[0], json={**payload, "client_id": clients[0]})
+    b = client.post("/api/invoices", headers=tokens[1], json={**payload, "client_id": clients[1]})
+    assert a.status_code == b.status_code == 200
+    assert a.json()["invoice_number"] != b.json()["invoice_number"]
+
+    invoice_id = a.json()["id"]
+    denied = client.put(f"/api/invoices/{invoice_id}", headers=tokens[0], json={
+        "client_id": clients[1]
+    })
+    assert denied.status_code == 404
+    assert client.get(f"/api/invoices/{invoice_id}", headers=tokens[0]).json()["client_id"] == clients[0]
+    assert client.get(f"/api/invoices/{invoice_id}", headers=tokens[1]).status_code == 404
+
+    invalid = client.post("/api/invoices", headers=tokens[0], json={
+        **payload, "client_id": clients[0],
+        "due_date": (today - timedelta(days=1)).isoformat(),
+    })
+    assert invalid.status_code == 422
+    invalid_cents = client.post("/api/invoices", headers=tokens[0], json={
+        **payload, "client_id": clients[0], "amount": "2.345"
+    })
+    assert invalid_cents.status_code == 422
+
+    # No fabricated payment link can be issued when Stripe is not configured.
+    from app.config import settings
+    if not settings.stripe_secret_key:
+        link = client.post(f"/api/invoices/{invoice_id}/payment-link", headers=tokens[0])
+        assert link.status_code == 503
+
+
+def test_reminder_status_guards_and_bad_token():
+    from app.auth import create_access_token
+    malformed = create_access_token({"sub": "not-an-integer"})
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {malformed}"}).status_code == 401
+
+    reg = client.post("/api/auth/register", json={
+        "email": "guard@example.com", "password": "SecurePassword123!"
+    })
+    assert reg.status_code == 200
+    auth = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    customer = client.post("/api/clients", headers=auth, json={
+        "name": "Guarded Customer", "email": "guard-client@example.com"
+    }).json()
+    invoice = client.post("/api/invoices", headers=auth, json={
+        "client_id": customer["id"], "amount": "20.00",
+        "issued_date": date.today().isoformat(),
+        "due_date": (date.today() + timedelta(days=7)).isoformat()
+    }).json()
+    reminders = client.get(f"/api/reminders?invoice_id={invoice['id']}", headers=auth).json()
+    assert reminders
+    rid = reminders[0]["id"]
+    assert client.delete(f"/api/reminders/{rid}", headers=auth).status_code == 204
+    assert client.post(f"/api/reminders/{rid}/send", headers=auth).status_code == 409
+
+    paid = client.post(f"/api/invoices/{invoice['id']}/mark-paid", headers=auth)
+    assert paid.status_code == 200
+    assert client.post(f"/api/reminders/{reminders[-1]['id']}/send", headers=auth).status_code == 409
+
+
+def test_unpaid_or_wrong_amount_stripe_event_cannot_settle_invoice(monkeypatch):
+    from app.routers import integrations
+    reg = client.post("/api/auth/register", json={
+        "email": "webhook-test@example.com", "password": "SecurePassword123!"
+    })
+    assert reg.status_code == 200
+    auth = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    customer = client.post("/api/clients", headers=auth, json={
+        "name": "Payment Customer", "email": "payment-client@example.com"
+    }).json()
+    invoice = client.post("/api/invoices", headers=auth, json={
+        "client_id": customer["id"], "amount": "30.50",
+        "issued_date": date.today().isoformat(),
+        "due_date": (date.today() + timedelta(days=7)).isoformat()
+    }).json()
+
+    session = {
+        "client_reference_id": str(invoice["id"]),
+        "payment_status": "unpaid",
+        "amount_total": 3050,
+        "currency": "usd",
+    }
+    event = {"type": "checkout.session.completed", "data": {"object": session}}
+    monkeypatch.setattr(integrations, "verify_stripe_webhook", lambda body, sig: event)
+
+    endpoint = "/api/integrations/webhooks/stripe"
+    assert client.post(endpoint, content=b"test").json()["status"] == "ignored"
+    session["payment_status"] = "paid"
+    session["amount_total"] = 100
+    assert client.post(endpoint, content=b"test").json()["status"] == "ignored"
+    assert client.get(f"/api/invoices/{invoice['id']}", headers=auth).json()["status"] == "sent"
+
+    session["amount_total"] = 3050
+    assert client.post(endpoint, content=b"test").json()["status"] == "handled"
+    assert client.get(f"/api/invoices/{invoice['id']}", headers=auth).json()["status"] == "paid"
+
+
+def test_email_html_and_spreadsheet_formula_escaping():
+    from types import SimpleNamespace
+    from app.services.integrations.email_service import generate_html_email
+    from app.services.integrations.export_service import export_clients_to_csv
+
+    markup = generate_html_email(
+        business_name="<script>alert(1)</script>",
+        client_name="Client",
+        invoice_number="INV<2",
+        amount=12,
+        currency="USD",
+        due_date_str="Tomorrow",
+        body_text="<img src=x onerror=alert(1)>",
+        payment_url="javascript:alert(1)",
+    )
+    assert "<script>" not in markup
+    assert "<img src=x" not in markup
+    assert 'href="javascript:' not in markup
+    assert "&lt;script&gt;" in markup
+    row = SimpleNamespace(id=1, name="=1+1", email="safe@example.com",
+                          company=None, phone=None, risk_score=15.0,
+                          risk_tier="low", notes="+SUM(1,2)")
+    exported = export_clients_to_csv([row])
+    assert "'=1+1" in exported
+    assert "'+SUM(1,2)" in exported
+
+
+def test_unconfigured_email_is_not_reported_delivered(monkeypatch):
+    from types import SimpleNamespace
+    from app.config import settings
+    from app.services.integrations.email_service import dispatch_reminder_email
+
+    monkeypatch.setattr(settings, "resend_api_key", "")
+    monkeypatch.setattr(settings, "smtp_host", "")
+    monkeypatch.setattr(settings, "email_provider", "resend")
+    invoice = SimpleNamespace(
+        client=SimpleNamespace(name="Customer", email="someone@example.com"),
+        user=SimpleNamespace(business_name="Our Co"),
+        invoice_number="INV-1-999",
+        amount=10,
+        currency="USD",
+        due_date=date.today(),
+        payment_url=None,
+    )
+    reminder = SimpleNamespace(invoice=invoice, email_subject="Reminder", email_body="Pay invoice")
+    success, reason = dispatch_reminder_email(reminder)
+    assert success is False
+    assert "provider" in reason.lower()
+
+
+def test_payment_link_requires_https_and_production_requires_secret():
+    from pydantic import ValidationError
+    from app.config import Settings
+    from app.schemas import InvoiceCreate, InvoiceUpdate
+
+    with pytest.raises(ValidationError):
+        Settings(environment="production", secret_key="")
+    with pytest.raises(ValidationError):
+        InvoiceCreate(
+            client_id=1, amount="10.00", issued_date=date.today(),
+            due_date=date.today(), payment_url="javascript:alert(1)"
+        )
+    with pytest.raises(ValidationError):
+        InvoiceUpdate(payment_url="http://example.com/pay")

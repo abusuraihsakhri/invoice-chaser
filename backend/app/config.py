@@ -2,13 +2,14 @@ import os
 import secrets
 from typing import List
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 
 
 class Settings(BaseSettings):
     # App
     app_name: str = "Invoice Chaser API"
     app_version: str = "1.0.0"
-    environment: str = "production"
+    environment: str = "development"
     debug: bool = False
 
     # Database: Defaults to local SQLite if postgres is not provided
@@ -16,7 +17,7 @@ class Settings(BaseSettings):
 
     # Security & JWT
     # If no secret key is provided, generate a secure random one for development/session safety
-    secret_key: str = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+    secret_key: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
 
@@ -65,6 +66,18 @@ class Settings(BaseSettings):
 
     # App URLs
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+    @model_validator(mode="after")
+    def ensure_secret_key(self):
+        if self.environment.lower() == "production":
+            if not self.secret_key or self.secret_key in (
+                "your-secret-key-change-in-production",
+                "your-super-secret-key-change-this",
+            ):
+                raise ValueError("A strong SECRET_KEY must be provided in production")
+        elif not self.secret_key:
+            self.secret_key = secrets.token_urlsafe(32)
+        return self
 
     class Config:
         env_file = ".env"

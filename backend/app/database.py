@@ -21,11 +21,10 @@ def create_resilient_engine():
             pass
         return engine
     except Exception as exc:
-        logger.warning(
-            "Configured database (%s) could not be reached (%s). Falling back to local SQLite.",
-            db_url.split("@")[-1] if "@" in db_url else db_url,
-            exc,
-        )
+        if settings.environment.lower() not in ("development", "test"):
+            # Never silently switch production tenants to an unrelated local database.
+            raise RuntimeError("Configured production database is unavailable") from exc
+        logger.warning("Configured database is unavailable; using development SQLite fallback")
         return create_engine("sqlite:///./invoice_chaser.db", connect_args={"check_same_thread": False})
 
 engine = create_resilient_engine()

@@ -28,7 +28,7 @@ export default function SettingsPage() {
       if (data && data.status === "healthy") {
         setTestResult({
           success: true,
-          message: `Connected! Database: ${data.database} | AI: ${data.ai_provider} | Email: ${data.email_configured ? "Ready" : "Demo Mode"}`,
+          message: `Connected! Database: ${data.database} | AI: ${data.ai_provider} | Email: ${data.email_configured ? "Configured" : "Not configured"}`,
           latency: data.latencyMs,
         });
       } else {
