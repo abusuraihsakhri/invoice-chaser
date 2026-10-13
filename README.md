@@ -1,201 +1,85 @@
-# ⚡ Invoice Chaser — Autonomous Accounts Receivable & Payment Recovery Engine
+# Invoice Chaser
 
-[![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/abusuraihsakhri/invoice-chaser/releases)
-[![Build & Release](https://github.com/abusuraihsakhri/invoice-chaser/actions/workflows/release.yml/badge.svg)](https://github.com/abusuraihsakhri/invoice-chaser/actions/workflows/release.yml)
-[![CI Status](https://github.com/abusuraihsakhri/invoice-chaser/actions/workflows/ci.yml/badge.svg)](https://github.com/abusuraihsakhri/invoice-chaser/actions/workflows/ci.yml)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20Android-green.svg)](#-cross-platform-distribution)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Invoice Chaser is an accounts-receivable application for managing clients and invoices, preparing payment reminders, exporting records, and tracking payment status. It combines a Next.js browser interface with a Python FastAPI backend and SQL database. Desktop (Electron) and Android (Capacitor) packaging projects are also included.
 
-**Invoice Chaser** is an enterprise-grade, autonomous accounts receivable (AR) automation system designed to eliminate manual collection follow-ups and accelerate cash flow. Powered by an intelligent API layer, multi-provider AI risk scoring, automated Stripe checkout generation, and native builds across **Windows**, **Linux**, **macOS**, and **Android phones**.
+## Features
 
----
+- Client and invoice management, due dates, paid/overdue states, and dashboard totals.
+- Scheduled email reminders, manual sends, and customizable message tone. Email is **not** considered sent without a successful transport; console simulation requires explicit development configuration.
+- Rule-based risk estimates and optional remote text-generation providers. Risk scores and response-rate estimates are **heuristics, not validated predictions**.
+- PDF invoices and CSV exports (exports require authentication).
+- Optional Stripe Checkout sessions; payment records are settled only after a verified Stripe webhook confirms matching invoice amount and currency.
+- Optional server-configured webhook notifications for operational events.
 
-## 🌟 Key Highlights
+## Deployment status and architecture
 
-- 🤖 **Autonomous AI Tone Escalation**: Proactively transitions reminders through 6 distinct stages (`friendly` -> `professional` -> `firm` -> `urgent` -> `final` -> `legal`) based on debtor behavior and payment delays.
-- 🎯 **Predictive Default Risk Scoring (0–100%)**: Multi-variable credit risk engine projecting payment default probability, expected delay days, and automated collection strategy.
-- 💳 **1-Click Stripe Checkout Integrations**: Generates hosted Stripe Checkout URLs embedded directly into reminder emails and client views.
-- 📄 **Branded Vector PDF Invoices**: Programmatic, print-ready PDF invoice generation via ReportLab with real-time status badges and payment links.
-- ⚙️ **Custom Business Rules & Templates**: Configurable invoice payment terms, reminder intervals, and branded message templates.
-- 💬 **Smart Dispute Rebuttal & Payment Plans**: Automatically drafts legally sound rebuttals to client delay tactics and generates structured installment plans.
-- 🔔 **Multi-Channel Dispatch**: Transactional emails via **Resend API** or **SMTP** (Gmail/SES/Outlook), plus real-time team notifications via **Slack**, **Discord**, and **HMAC-signed Webhooks**.
-- 🗄️ **Zero-Config Resilient DB**: Seamlessly connects to **PostgreSQL** in production or auto-initializes local **SQLite** (`invoice_chaser.db`) in offline/dev mode.
-- 📱 **True Cross-Platform**: Native desktop installers for Windows, Linux, and macOS via Electron 31, and native Android APK packaging via Capacitor 6.
+The frontend builds as static files, but **is not a standalone offline application**. Login, invoices, reminders, PDFs, payments, and storage require a running FastAPI backend. GitHub Pages cannot host the backend, scheduled jobs, database, or server-held Stripe/email credentials. No GitHub Pages deployment of a working full application has been verified.
 
----
+The [GitHub releases](https://github.com/abusuraihsakhri/invoice-chaser/releases) may contain packaged desktop, Android, and backend artifacts. These clients also require a reachable backend; release artifacts are not a hosted service.
 
-## 🏗️ System Architecture
+## Local development
 
-```mermaid
-flowchart TB
-    subgraph Clients["Cross-Platform Native Clients"]
-        Win["🪟 Windows (.exe NSIS / Portable)"]
-        Lin["🐧 Linux (.AppImage / .deb)"]
-        Mac["🍎 macOS (.dmg / .zip)"]
-        And["📱 Android (.apk / .aab)"]
-        Web["🌐 Web Browser (Next.js 14)"]
-    end
+Requires Python 3.12+, Node.js 20+ and npm. Start the backend from the repository root:
 
-    subgraph CoreEngine["FastAPI Intelligent API Layer (Python 3.12)"]
-        Auth["JWT & Native Bcrypt Multi-Tenant Auth"]
-        Intelligent["Autonomous AI Engine\n(Hermes 3 / OpenAI / Gemini / Offline Heuristic)"]
-        RiskEngine["Multi-Variable Risk Engine (0-100%)"]
-        Scheduler["APScheduler Automated Dispatch Daemon"]
-        Integrations["Integrations Gateway"]
-    end
-
-    subgraph Storage["Data Tier (Resilient & Agnostic)"]
-        DB[("PostgreSQL or SQLite (Auto-Fallback)")]
-        Audit[("Multi-Tenant Audit Logs")]
-    end
-
-    subgraph ExtServices["External Integrations"]
-        Stripe["💳 Stripe Checkout & Webhooks"]
-        Email["✉️ Resend REST API / SMTP"]
-        Hooks["🔔 Slack / Discord / Custom HMAC Webhooks"]
-        PDF["📄 ReportLab Vector PDF Engine"]
-    end
-
-    Win & Lin & Mac & And & Web -->|REST / JSON API| CoreEngine
-    CoreEngine --> Storage
-    Integrations --> ExtServices
-```
-
----
-
-## 📱 Cross-Platform Distribution
-
-| Operating System | Package Target | Binary Artifact | Runtime Engine |
-|---|---|---|---|
-| **Windows** | x64, arm64 | `Invoice-Chaser-Setup-1.0.0.exe`, Portable `.exe` | Electron 31 + Chromium |
-| **Linux** | x64, arm64 | `Invoice-Chaser-1.0.0.AppImage`, `.deb` package | Electron 31 + GTK3 |
-| **macOS** | Universal (Intel / Apple Silicon) | `Invoice-Chaser-1.0.0.dmg`, `.zip` | Electron 31 + Cocoa |
-| **Android Phones** | Android 7.0+ (API 24–34) | `Invoice-Chaser-v1.0.0.apk` | Capacitor 6 + Android WebView |
-| **Web Browser** | Chrome, Firefox, Safari, Edge | Responsive PWA / Static Export | Next.js 14 + Tailwind CSS |
-| **Backend Service** | Linux / Docker / Cloud | Container / Tarball Release | Python 3.12 + FastAPI + Uvicorn |
-
----
-
-## 🚀 Quick Start Guide
-
-### Prerequisites
-- **Python 3.12+**
-- **Node.js 20+** and **npm**
-- *(Optional)* Android SDK 34 / Java 17 for local mobile builds
-
----
-
-### 1. Backend API Layer
-
-```powershell
-# Navigate to backend directory
+```bash
 cd backend
-
-# Create and activate virtual environment
 python -m venv .venv
-# On Windows (PowerShell):
-.\.venv\Scripts\Activate.ps1
-# On Linux / macOS:
-# source .venv/bin/activate
-
-# Install dependencies
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Launch FastAPI development server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-- 📖 **Interactive Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- 🔍 **Health Status**: [http://localhost:8000/health](http://localhost:8000/health)
+In a second shell:
 
----
-
-### 2. Frontend Web Application
-
-```powershell
-# Navigate to frontend directory
+```bash
 cd frontend
-
-# Install packages
-npm install
-
-# Build static export for Electron & Android embedding
-npm run build
-
-# Or launch local web development server
+npm ci
 npm run dev
 ```
 
-- 🌐 Web Dashboard: [http://localhost:3000](http://localhost:3000)
+Open http://localhost:3000 and register an account. API documentation is at http://localhost:8000/docs. Development defaults to local SQLite and a random JWT signing key; tokens from a restarted development instance can become invalid. Optional integrations are inactive until configured.
 
----
+To use the Compose stack, create a local untracked `.env` file in the repository root containing strong `POSTGRES_PASSWORD` and `SECRET_KEY` values. Then run `docker compose up --build`. The Compose backend runs in production mode and will not silently switch to SQLite if PostgreSQL is unavailable.
 
-### 3. Desktop Application (Windows, Linux, macOS)
+## Configuration
 
-```powershell
-# Navigate to desktop directory
-cd desktop
+Keep all credentials on the **backend**. Relevant variables include:
 
-# Install desktop dependencies
-npm install
+| Variable | Purpose |
+|---|---|
+| `ENVIRONMENT` | `development` (default) or `production` |
+| `SECRET_KEY` | Strong stable JWT signing key; required in production |
+| `DATABASE_URL` | SQLAlchemy database URL (SQLite default in development) |
+| `FRONTEND_URL` | Frontend address used for payment redirects |
+| `CORS_ORIGINS` | Additional allowed frontend origins when configured |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Live payments and verified callbacks |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Transactional email via Resend |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | Alternative SMTP delivery |
+| `EMAIL_PROVIDER=console` | Development/test-only simulated email transport |
+| `SLACK_WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`, `GENERIC_WEBHOOK_URL` | Server-side alert targets |
 
-# Launch Electron in development mode
-npm start
+For remote browser clients, configure the API URL under **Settings** and enable its origin in the backend CORS configuration. Use HTTPS for any internet-facing API; do not put API keys into browser-local settings or static exports. The browser application stores its login token and API URL in local storage, so use trusted devices and avoid untrusted scripts/extensions.
 
-# Package for your operating system:
-npm run build:win     # Generates Windows NSIS installer & portable .exe
-npm run build:linux   # Generates Linux AppImage & .deb
-npm run build:mac     # Generates macOS universal .dmg
+## Verification
+
+```bash
+cd backend
+python -m pytest tests/test_api.py -v
+
+cd ../frontend
+npm ci
+npm run build
 ```
 
-Compiled binaries will appear in `desktop/dist/`.
+GitHub Actions CI tests the backend and checks Next.js static export outputs. Platform-specific desktop and mobile builds are defined in the release workflow; successful compilation does not verify native packaging, notifications, payment providers, or all device/browser workflows.
 
----
+## Technology and compatibility
 
-### 4. Android Mobile Application
+- Backend: FastAPI, SQLAlchemy, SQLite/PostgreSQL, APScheduler, ReportLab.
+- Frontend: Next.js 14, React 18, Tailwind CSS; modern Chromium, Firefox, and Safari-compatible browsers are intended.
+- Desktop/mobile: Electron and Capacitor project templates. External runtime prerequisites and deployed API are required.
+- Privacy: Client names, email addresses, invoices, and authentication records are stored in the configured backend database. Email and payment providers receive data needed for their configured operations. API credentials must remain server-side.
 
-```powershell
-# Sync the static web build to the Android project
-npx cap sync android
+## License
 
-# Open project in Android Studio
-npx cap open android
-
-# Or build debug APK directly via command line
-cd android
-.\gradlew.bat assembleDebug
-```
-
-Output APK will be generated at:
-`android/app/build/outputs/apk/debug/app-debug.apk`
-
----
-
-## ⚙️ Environment Configuration
-
-Create a `.env` file in the `backend/` directory or export variables:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DATABASE_URL` | `sqlite:///./invoice_chaser.db` | Database connection URI (PostgreSQL or SQLite) |
-| `SECRET_KEY` | *(Auto-generated safe random)* | JWT encryption signing key |
-| `ALGORITHM` | `HS256` | JWT signature algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `10080` (7 days) | User session token validity window |
-| `AI_PROVIDER` | `hermes` | AI engine: `hermes`, `openai`, `gemini`, `claude`, `offline` |
-| `AI_API_KEY` | `""` | API key for configured external AI provider |
-| `STRIPE_SECRET_KEY` | `""` | Stripe secret key for live payment links |
-| `STRIPE_WEBHOOK_SECRET` | `""` | Stripe webhook HMAC signing secret |
-| `EMAIL_PROVIDER` | `smtp` | Transactional email provider: `resend` or `smtp` |
-| `RESEND_API_KEY` | `""` | Resend REST API key |
-| `SMTP_HOST` / `SMTP_PORT` | `smtp.gmail.com` / `587` | SMTP mail server configuration |
-| `SMTP_USER` / `SMTP_PASSWORD` | `""` / `""` | SMTP mail credentials |
-| `SLACK_WEBHOOK_URL` | `""` | Outgoing Slack webhook for instant team alerts |
-| `DISCORD_WEBHOOK_URL` | `""` | Outgoing Discord channel webhook |
-| `GENERIC_WEBHOOK_URL` | `""` | Outgoing custom endpoint for enterprise ERPs |
-| `WEBHOOK_SECRET` | `""` | HMAC SHA256 signing key for outgoing webhook payloads |
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+The repository does not currently contain a `LICENSE` file. No reuse or distribution rights are granted by this README; the repository owner should add an explicit license if desired.
