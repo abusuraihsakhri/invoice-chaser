@@ -202,12 +202,12 @@ def generate_payment_link(
 
     try:
         res = create_invoice_checkout_session(
-        invoice_id=invoice.id,
-        invoice_number=invoice.invoice_number,
-        amount=float(invoice.amount),
-        currency=invoice.currency or "USD",
-        client_email=invoice.client.email,
-        business_name=current_user.business_name or "Invoice Chaser",
+            invoice_id=invoice.id,
+            invoice_number=invoice.invoice_number,
+            amount=float(invoice.amount),
+            currency=invoice.currency or "USD",
+            client_email=invoice.client.email,
+            business_name=current_user.business_name or "Invoice Chaser",
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -236,6 +236,13 @@ def update_invoice(
         raise HTTPException(status_code=404, detail="Invoice not found")
 
     update_data = invoice_data.model_dump(exclude_unset=True)
+    if any(update_data.get(field) is None for field in ("client_id", "amount", "currency", "status") if field in update_data):
+        raise HTTPException(status_code=422, detail="Required invoice fields cannot be null")
+    if invoice.payment_url and any(
+        field in update_data and update_data[field] != getattr(invoice, field)
+        for field in ("client_id", "amount", "currency")
+    ):
+        raise HTTPException(status_code=409, detail="Remove or replace the existing payment link before changing billable fields")
     if "client_id" in update_data:
         client = db.query(Client).filter(
             Client.id == update_data["client_id"],
