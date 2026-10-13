@@ -306,3 +306,42 @@ def test_email_html_and_spreadsheet_formula_escaping():
     exported = export_clients_to_csv([row])
     assert "'=1+1" in exported
     assert "'+SUM(1,2)" in exported
+
+
+def test_unconfigured_email_is_not_reported_delivered(monkeypatch):
+    from types import SimpleNamespace
+    from app.config import settings
+    from app.services.integrations.email_service import dispatch_reminder_email
+
+    monkeypatch.setattr(settings, "resend_api_key", "")
+    monkeypatch.setattr(settings, "smtp_host", "")
+    monkeypatch.setattr(settings, "email_provider", "resend")
+    invoice = SimpleNamespace(
+        client=SimpleNamespace(name="Customer", email="someone@example.com"),
+        user=SimpleNamespace(business_name="Our Co"),
+        invoice_number="INV-1-999",
+        amount=10,
+        currency="USD",
+        due_date=date.today(),
+        payment_url=None,
+    )
+    reminder = SimpleNamespace(invoice=invoice, email_subject="Reminder", email_body="Pay invoice")
+    success, reason = dispatch_reminder_email(reminder)
+    assert success is False
+    assert "provider" in reason.lower()
+
+
+def test_payment_link_requires_https_and_production_requires_secret():
+    from pydantic import ValidationError
+    from app.config import Settings
+    from app.schemas import InvoiceCreate, InvoiceUpdate
+
+    with pytest.raises(ValidationError):
+        Settings(environment="production", secret_key="")
+    with pytest.raises(ValidationError):
+        InvoiceCreate(
+            client_id=1, amount="10.00", issued_date=date.today(),
+            due_date=date.today(), payment_url="javascript:alert(1)"
+        )
+    with pytest.raises(ValidationError):
+        InvoiceUpdate(payment_url="http://example.com/pay")
